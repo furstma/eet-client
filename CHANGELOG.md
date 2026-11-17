@@ -12,3 +12,11 @@ while the version is 0.x, a minor release may change the API.
   schema when it is created.
 - `Certificate`, the taxpayer's certificate with its private key, loaded from
   the PKCS#12 file that the certification authority issues.
+- `PLAYGROUND` and `PRODUCTION`, the two environments of the service, as
+  `Endpoint` values that also say whose signature a confirmation must carry.
+- `Confirmation` and `Verification`, the two successful outcomes, with the
+  warnings of the service as `ServiceWarning` and their codes as `WarningCode`.
+- The exceptions, all under `EETError`: `Unavailable` (report the sale again
+  later), its subclass `InvalidReply` (a reply came but cannot be trusted) and
+  `Rejected` (do not send again unchanged), with the error codes of the
+  service as `ErrorCode`.

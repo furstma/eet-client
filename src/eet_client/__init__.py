@@ -1,6 +1,7 @@
 """Client for the Czech EET 2.0 sales registration service."""
 
 from eet_client._certificate import Certificate
+from eet_client._client import Client
 from eet_client._endpoint import PLAYGROUND, PRODUCTION, Endpoint
 from eet_client._errors import EETError, ErrorCode, InvalidReply, Rejected, Unavailable
 from eet_client._message import Message
@@ -11,6 +12,7 @@ __all__ = [
     "PLAYGROUND",
     "PRODUCTION",
     "Certificate",
+    "Client",
     "Confirmation",
     "EETError",
     "Endpoint",

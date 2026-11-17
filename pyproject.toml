@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
     "cryptography>=42",
     "lxml>=4.9.3",
+    "tzdata>=2020.1; sys_platform == 'win32'",
 ]
 
 [project.urls]

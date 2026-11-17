@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  # Use uv's own CPython builds, not whatever the runner image ships.
+  UV_PYTHON_PREFERENCE: only-managed
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: latest-known
+          python-version: "3.11"
+          enable-cache: false
+      - run: uv sync
+      - run: uv run --no-sync ruff check
+      - run: uv run --no-sync ruff format --check
+      - run: uv run --no-sync mypy
+
+  test:
+    name: Tests (${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        include:
+          - os: windows-latest
+            python: "3.15"
+          - os: macos-latest
+            python: "3.15"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: latest-known
+          python-version: ${{ matrix.python }}
+          enable-cache: false
+      - run: uv sync
+      - run: uv run --no-sync coverage run -m pytest
+      - run: uv run --no-sync coverage report
+
+  lowest:
+    name: Tests (lowest dependencies)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Resolve cryptography and lxml to the lowest versions pyproject.toml allows.
+      UV_RESOLUTION: lowest-direct
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: latest-known
+          python-version: "3.11"
+          enable-cache: false
+      - run: uv sync
+      - run: uv run --no-sync pytest
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash # with pipefail: a failing tar or unzip fails the step
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: latest-known
+          python-version: "3.11"
+          enable-cache: false
+      - run: uv build
+      - name: Check the wheel contents
+        run: |
+          unzip -Z1 dist/*.whl | sort | tee wheel.txt
+          grep -qx 'eet_client/__init__.py' wheel.txt
+          grep -qx 'eet_client/py.typed' wheel.txt
+          grep -q '\.dist-info/licenses/LICENSE$' wheel.txt
+          if grep -vE '^eet_client/|^eet_client-[^/]+\.dist-info/' wheel.txt; then
+            echo "::error::unexpected files in the wheel"
+            exit 1
+          fi
+      - name: Check the sdist contents
+        run: |
+          tar -tzf dist/*.tar.gz | grep -v '/$' | sed 's|^[^/]*/||' | sort | tee sdist.txt
+          if grep -vE '^(src/eet_client/|(LICENSE|README\.md|PKG-INFO|pyproject\.toml)$)' sdist.txt; then
+            echo "::error::unexpected files in the sdist"
+            exit 1
+          fi
+      - name: Install and import the wheel
+        run: uv run --isolated --no-project --with dist/*.whl python -c "import eet_client"
+      - name: Install and import the sdist
+        run: uv run --isolated --no-project --with dist/*.tar.gz python -c "import eet_client"
+
+  ok:
+    name: All checks
+    if: always()
+    needs: [lint, test, lowest, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1

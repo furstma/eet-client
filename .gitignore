@@ -17,3 +17,7 @@ htmlcov/
 *.p12
 *.pfx
 *.key
+*.pem
+
+# Dependencies are not locked: CI tests against the newest releases.
+uv.lock

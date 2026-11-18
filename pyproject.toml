@@ -1,0 +1,87 @@
+[build-system]
+requires = ["flit_core>=3.12,<5"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "eet-client"
+version = "0.1.0.dev0"
+description = "Unofficial Python client for the Czech EET 2.0 sales registration service"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "furstma" }]
+keywords = ["eet", "evidence-trzeb", "czech", "sales-registration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Office/Business :: Financial :: Point-Of-Sale",
+    "Typing :: Typed",
+]
+dependencies = [
+    "cryptography>=42",
+    "lxml>=4.9.3",
+]
+
+[project.urls]
+Source = "https://github.com/furstma/eet-client"
+Issues = "https://github.com/furstma/eet-client/issues"
+Changelog = "https://github.com/furstma/eet-client/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "coverage==7.17.3",
+    "mypy==2.4.1",
+    "pytest==9.2.0",
+    "ruff==0.17.5",
+    "types-lxml==2026.2.16",
+]
+
+[tool.ruff.lint]
+extend-select = [
+    "S",    # flake8-bandit
+    "DTZ",  # naive datetimes
+    "T20",  # print
+    "PGH",  # blanket noqa and type: ignore
+]
+ignore = [
+    "FURB157",  # amounts are written as strings: Decimal("100")
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.mypy]
+files = ["src", "tests"]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+enable_error_code = [
+    "deprecated",
+    "ignore-without-code",
+    "possibly-undefined",
+    "redundant-expr",
+    "truthy-bool",
+]
+
+[tool.pytest]
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib", "-ra"]
+strict = true
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source_pkgs = ["eet_client"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 100

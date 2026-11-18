@@ -6,4 +6,7 @@ while the version is 0.x, a minor release may change the API.
 
 ## Unreleased
 
-Nothing has been released yet.
+### Added
+
+- `Sale`, the sale to be reported. Its values are checked against the official
+  schema when it is created.

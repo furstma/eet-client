@@ -32,6 +32,10 @@ CI runs the linters and the type checker on Python 3.11, the tests on every
 supported Python version, and the tests once more with the oldest supported
 versions of the dependencies.
 
+Tests marked `live` need the network: they download the test certificates and
+signed samples that the tax administration publishes. They run only when
+selected, with `uv run pytest -m live`.
+
 ## Pull requests
 
 - One concern per pull request, with tests.

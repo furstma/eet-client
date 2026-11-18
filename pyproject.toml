@@ -74,9 +74,12 @@ enable_error_code = [
 
 [tool.pytest]
 testpaths = ["tests"]
-addopts = ["--import-mode=importlib", "-ra"]
+addopts = ["--import-mode=importlib", "-ra", "-m", "not live"]
 strict = true
 filterwarnings = ["error"]
+markers = [
+    "live: needs the network; not run unless selected with -m live",
+]
 
 [tool.coverage.run]
 source_pkgs = ["eet_client"]

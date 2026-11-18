@@ -33,8 +33,9 @@ supported Python version, and the tests once more with the oldest supported
 versions of the dependencies.
 
 Tests marked `live` need the network: they download the test certificates and
-signed samples that the tax administration publishes. They run only when
-selected, with `uv run pytest -m live`.
+signed samples that the tax administration publishes, and exchange test
+messages with its Playground. They run only when selected, with
+`uv run pytest -m live`, and once a week in the Live workflow.
 
 ## Pull requests
 

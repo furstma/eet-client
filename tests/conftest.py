@@ -1,14 +1,22 @@
 import base64
 import hashlib
-from collections.abc import Callable, Sequence
+import http.server
+import io
+import ipaddress
+import ssl
+import threading
+import urllib.request
+import zipfile
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from lxml import etree
 
 from eet_client import Certificate, Endpoint, Sale
@@ -257,3 +265,212 @@ def service(
         authorities=authority.public_bytes(serialization.Encoding.PEM).decode(),
     )
     return Service(other_key, certificate, endpoint)
+
+
+class Request:
+    """What the local server received."""
+
+    def __init__(self, handler: http.server.BaseHTTPRequestHandler) -> None:
+        self.method = handler.command
+        self.path = handler.path
+        self.version = handler.request_version
+        self.headers = {name.lower(): value for name, value in handler.headers.items()}
+        self.body = handler.rfile.read(int(handler.headers.get("Content-Length", "0")))
+
+
+Respond = Callable[[http.server.BaseHTTPRequestHandler, Request], None]
+
+
+class Server:
+    """A local HTTPS server. A test sets ``respond`` to decide what it answers."""
+
+    def __init__(self, port: int) -> None:
+        # an address, not "localhost": that name may resolve to ::1 first
+        self.url = f"https://127.0.0.1:{port}/eet/services/EETServiceSOAP/v4"
+        self.port = port
+        self.requests: list[Request] = []
+        self.respond: Respond = lambda handler, request: self.reply(handler, b"")
+
+    @staticmethod
+    def reply(
+        handler: http.server.BaseHTTPRequestHandler,
+        body: bytes,
+        *,
+        status: int = 200,
+        headers: Sequence[tuple[str, str]] = (),
+    ) -> None:
+        """Answer with a complete reply and close the connection."""
+        handler.send_response(status)
+        handler.send_header("Content-Type", "text/xml; charset=UTF-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Connection", "close")
+        for name, value in headers:
+            handler.send_header(name, value)
+        handler.end_headers()
+        handler.wfile.write(body)
+
+
+def _tls_certificates(
+    key: rsa.RSAPrivateKey,
+) -> tuple[x509.Certificate, x509.Certificate]:
+    """An authority and its certificate for localhost, fit for strict checking."""
+    now = datetime.now(UTC)
+    public = key.public_key()
+    identifier = x509.SubjectKeyIdentifier.from_public_key(public)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test TLS authority")])
+    usage = {
+        "content_commitment": False,
+        "key_encipherment": False,
+        "data_encipherment": False,
+        "key_agreement": False,
+        "encipher_only": False,
+        "decipher_only": False,
+    }
+    authority = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(public)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=False, key_cert_sign=True, crl_sign=True, **usage
+            ),
+            critical=True,
+        )
+        .add_extension(identifier, critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    server = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")]))
+        .issuer_name(name)
+        .public_key(public)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True, key_cert_sign=False, crl_sign=False, **usage
+            ),
+            critical=True,
+        )
+        .add_extension(
+            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False
+        )
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+                ]
+            ),
+            critical=False,
+        )
+        .add_extension(identifier, critical=False)
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(public), critical=False
+        )
+        .sign(key, hashes.SHA256())
+    )
+    return authority, server
+
+
+@pytest.fixture(scope="session")
+def _running_server(
+    key: rsa.RSAPrivateKey, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[tuple[Server, Path]]:
+    authority, certificate = _tls_certificates(key)
+    directory = tmp_path_factory.mktemp("tls")
+    trusted = directory / "authority.pem"
+    trusted.write_bytes(authority.public_bytes(serialization.Encoding.PEM))
+    chain = directory / "server.pem"
+    chain.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        + certificate.public_bytes(serialization.Encoding.PEM)
+    )
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(chain)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self) -> None:
+            request = Request(self)
+            running.requests.append(request)
+            running.respond(self, request)
+            self.close_connection = True
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    class Listener(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+
+        def handle_error(self, request: object, client_address: object) -> None:
+            pass  # tests break connections on purpose
+
+    listener = Listener(("127.0.0.1", 0), Handler)
+    listener.socket = context.wrap_socket(listener.socket, server_side=True)
+    running = Server(listener.server_address[1])
+    thread = threading.Thread(target=listener.serve_forever, daemon=True)
+    thread.start()
+    yield running, trusted
+    listener.shutdown()
+    listener.server_close()
+    thread.join()
+
+
+@pytest.fixture
+def server(
+    _running_server: tuple[Server, Path], monkeypatch: pytest.MonkeyPatch
+) -> Server:
+    """The local HTTPS server, trusted for the length of the test."""
+    running, trusted = _running_server
+    monkeypatch.setenv("SSL_CERT_FILE", str(trusted))
+    running.requests.clear()
+    running.respond = lambda handler, request: running.reply(handler, b"")
+    return running
+
+
+# What the tax administration publishes for developers. Tests that use it
+# are marked ``live``.
+_OFFICIAL = "https://eet.gov.cz/assets/cs/cmsmedia/pro-vyvojare/"
+_ARCHIVE = "CAEET_Playground_2026_v1.zip"
+_ARCHIVE_SHA256 = "711ca591e2e58e906212befab55ea72cbc5d960af49e444765b0428751002491"
+IDENTITIES = ["CZ00000019", "CZ683555118", "CZ8551015704"]
+
+
+def _download(name: str) -> bytes:
+    with urllib.request.urlopen(_OFFICIAL + name, timeout=30) as response:  # noqa: S310
+        data: bytes = response.read()
+    return data
+
+
+@pytest.fixture(scope="session")
+def official_file() -> Callable[[str], bytes]:
+    """Downloads a file from the developers' section of eet.gov.cz."""
+    return _download
+
+
+@pytest.fixture(scope="session")
+def playground_certificates() -> dict[str, Certificate]:
+    """The public test certificates, by identity. They are never put on disk."""
+    data = _download(_ARCHIVE)
+    assert hashlib.sha256(data).hexdigest() == _ARCHIVE_SHA256
+    with zipfile.ZipFile(io.BytesIO(data)) as files:
+        password = files.read("password_pokladni_cert_playground.txt").decode().strip()
+        return {
+            identity: Certificate.from_pkcs12(
+                files.read(f"CA_EET-Playground-{identity}.p12"), password
+            )
+            for identity in IDENTITIES
+        }

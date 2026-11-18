@@ -20,3 +20,6 @@ while the version is 0.x, a minor release may change the API.
   later), its subclass `InvalidReply` (a reply came but cannot be trusted) and
   `Rejected` (do not send again unchanged), with the error codes of the
   service as `ErrorCode`.
+- `Client`, which builds and signs a `Message` for a sale, sends it within a
+  time limit that covers the whole exchange, and returns the verified
+  confirmation. It also sends a sale in verification mode.

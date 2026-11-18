@@ -1,0 +1,41 @@
+name: Live
+
+# Exchanges test messages with the Playground, the public test environment of
+# the tax administration, to notice when the interface or its certificates
+# change. It is kept out of CI so that an outage there does not fail a pull
+# request.
+
+on:
+  schedule:
+    # Tuesdays 08:23 UTC: working hours in Prague, away from the maintenance
+    # window on Thursday nights and from the top of the hour.
+    - cron: "23 8 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live
+  cancel-in-progress: false
+
+env:
+  UV_PYTHON_PREFERENCE: only-managed
+
+jobs:
+  playground:
+    name: Playground
+    if: github.repository == 'furstma/eet-client'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: latest-known
+          python-version: "3.14"
+          enable-cache: false
+      - run: uv sync
+      - run: uv run --no-sync pytest -m live

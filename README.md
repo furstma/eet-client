@@ -19,11 +19,10 @@ test environment of the tax administration. The production environment has
 not been used yet; the name of the certificate that signs its confirmations
 is taken from the published access document.
 
-The package is not on PyPI yet. Until the first release, install it from the
-repository:
+## Installation
 
 ```console
-$ python -m pip install "eet-client @ git+https://github.com/furstma/eet-client"
+$ python -m pip install eet-client
 ```
 
 It needs Python 3.11 or newer and installs `cryptography` and `lxml` (and

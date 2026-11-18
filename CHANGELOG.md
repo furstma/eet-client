@@ -6,6 +6,8 @@ while the version is 0.x, a minor release may change the API.
 
 ## Unreleased
 
+## 0.1.0 - 2026-11-18
+
 ### Added
 
 - `Sale`, the sale to be reported. Its values are checked against the official

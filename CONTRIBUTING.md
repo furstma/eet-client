@@ -47,3 +47,16 @@ messages with its Playground. They run only when selected, with
   identities.
 
 Security problems are reported privately, see [SECURITY.md](SECURITY.md).
+
+## Releasing
+
+For the maintainer:
+
+1. Set `version` in `pyproject.toml`. In `CHANGELOG.md`, add a heading with
+   the version and the date under "Unreleased", above its entries. Bring the
+   Status section of `README.md` up to date: the README becomes the page of
+   that version on PyPI. Merge that.
+2. Pull `main`. When CI has passed on that commit, tag it `vX.Y.Z` and push
+   the tag. The Release workflow checks that the tag matches the version and
+   that the commit is on `main`, builds the package and publishes it to PyPI.
+3. Set `version` to the next development version, such as `0.2.0.dev0`.
